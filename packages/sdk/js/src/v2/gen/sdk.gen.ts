@@ -19,6 +19,7 @@ import type {
   BharatCodeCallbackRequest,
   BharatCodeCapabilityChange,
   BharatCodeDictationRequest,
+  BharatCodeMcpServerInput,
   CommandListErrors,
   CommandListResponses,
   Config as Config3,
@@ -286,6 +287,12 @@ import type {
   V2CapabilitiesChangeResponses,
   V2CapabilitiesGetErrors,
   V2CapabilitiesGetResponses,
+  V2CapabilitiesMcpListErrors,
+  V2CapabilitiesMcpListResponses,
+  V2CapabilitiesMcpRemoveErrors,
+  V2CapabilitiesMcpRemoveResponses,
+  V2CapabilitiesMcpSaveErrors,
+  V2CapabilitiesMcpSaveResponses,
   V2CommandListErrors,
   V2CommandListResponses,
   V2CredentialRemoveErrors,
@@ -1467,6 +1474,66 @@ export class Capabilities2 extends HeyApiClient {
       ThrowOnError
     >({
       url: "/capabilities/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public mcpList<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      V2CapabilitiesMcpListResponses,
+      V2CapabilitiesMcpListErrors,
+      ThrowOnError
+    >({ url: "/capabilities/mcp", ...options })
+  }
+
+  public mcpRemove<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "name" }] }])
+    return (options?.client ?? this.client).delete<
+      V2CapabilitiesMcpRemoveResponses,
+      V2CapabilitiesMcpRemoveErrors,
+      ThrowOnError
+    >({
+      url: "/capabilities/mcp/{name}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public mcpSave<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      bharatCodeMcpServerInput?: BharatCodeMcpServerInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { key: "bharatCodeMcpServerInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      V2CapabilitiesMcpSaveResponses,
+      V2CapabilitiesMcpSaveErrors,
+      ThrowOnError
+    >({
+      url: "/capabilities/mcp/{name}",
       ...options,
       ...params,
       headers: {

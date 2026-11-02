@@ -1,9 +1,12 @@
+import fs from "node:fs/promises"
+import path from "node:path"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { Capabilities } from "@opencode-ai/core/capabilities"
 import { Global } from "@opencode-ai/core/global"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Config } from "@/config/config"
+import { BharatCodeMcpServers } from "@/bharatcode/mcp-servers"
 import { InstanceHttpApi } from "../api"
 import { InvalidRequestError, ServiceUnavailableError } from "../errors"
 
@@ -26,6 +29,14 @@ const storage = <A>(operation: () => Promise<A>) =>
     catch: () =>
       new ServiceUnavailableError({ message: "Capability state is unavailable. Re-read state before retrying." }),
   })
+// node:fs, not Bun.file: the desktop sidecar runs this server under Node.
+const readConfig = () =>
+  storage(() =>
+    fs.readFile(BharatCodeMcpServers.file(), "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return ""
+      throw error
+    }),
+  )
 
 export const capabilitiesHandlers = HttpApiBuilder.group(InstanceHttpApi, "v2.capabilities", (handlers) =>
   Effect.gen(function* () {
@@ -65,5 +76,29 @@ export const capabilitiesHandlers = HttpApiBuilder.group(InstanceHttpApi, "v2.ca
           return { state, reloadRequired: true as const }
         }),
       )
+      .handle("mcpList", () =>
+        Effect.gen(function* () {
+          const servers = BharatCodeMcpServers.list(yield* readConfig())
+          if (!servers) return yield* new ServiceUnavailableError({ message: BharatCodeMcpServers.INVALID_FILE })
+          return { servers }
+        }),
+      )
+      .handle("mcpSave", (ctx) => writeConfig((text) => BharatCodeMcpServers.save(text, ctx.params.name, ctx.payload)))
+      .handle("mcpRemove", (ctx) => writeConfig((text) => BharatCodeMcpServers.remove(text, ctx.params.name)))
+
+    // Like marketplace changes, saved servers connect on the next explicit runtime reload.
+    function writeConfig(change: (text: string) => { text: string } | { error: BharatCodeMcpServers.Problem }) {
+      return Effect.gen(function* () {
+        const result = change(yield* readConfig())
+        if ("error" in result)
+          return yield* new InvalidRequestError({ message: result.error.message, field: result.error.field })
+        yield* storage(async () => {
+          await fs.mkdir(path.dirname(BharatCodeMcpServers.file()), { recursive: true })
+          await fs.writeFile(BharatCodeMcpServers.file(), result.text)
+        })
+        yield* config.invalidate()
+        return { servers: BharatCodeMcpServers.list(result.text) ?? [], reloadRequired: true as const }
+      })
+    }
   }),
 )

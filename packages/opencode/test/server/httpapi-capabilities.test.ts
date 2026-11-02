@@ -6,6 +6,7 @@ import { HttpRouter } from "effect/unstable/http"
 import { Global } from "@opencode-ai/core/global"
 import { HttpApiApp } from "@/server/routes/instance/httpapi/server"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { parse } from "jsonc-parser"
 
 const state = path.join(Global.Path.data, "bharatcode-capabilities.json")
 const config = path.join(Global.Path.config, "opencode.jsonc")
@@ -36,6 +37,28 @@ const action = (body: unknown): RequestInit => ({
   headers: { ...auth, "content-type": "application/json" },
   body: JSON.stringify(body),
 })
+const put = (body: unknown): RequestInit => ({
+  method: "PUT",
+  headers: { ...auth, "content-type": "application/json" },
+  body: JSON.stringify(body),
+})
+function sdk(request: ReturnType<typeof app>) {
+  return createOpencodeClient({
+    baseUrl: "http://localhost",
+    headers: auth,
+    fetch: Object.assign(
+      async (input: RequestInfo | URL) => {
+        const source = input instanceof Request ? input : new Request(input)
+        return request(new URL(source.url).pathname, {
+          method: source.method,
+          headers: source.headers,
+          body: source.method === "GET" || source.method === "DELETE" ? undefined : await source.text(),
+        })
+      },
+      { preconnect: fetch.preconnect },
+    ),
+  })
+}
 
 test("marketplace read and writes require sidecar authorization", async () => {
   const request = app()
@@ -97,22 +120,7 @@ test("install stays disabled, uninstall persists, and reload is explicit", async
 })
 
 test("generated SDK reads and changes marketplace state through the protected handler", async () => {
-  const request = app()
-  const client = createOpencodeClient({
-    baseUrl: "http://localhost",
-    headers: auth,
-    fetch: Object.assign(
-      async (input: RequestInfo | URL) => {
-        const source = input instanceof Request ? input : new Request(input)
-        return request(new URL(source.url).pathname, {
-          method: source.method,
-          headers: source.headers,
-          body: source.method === "GET" ? undefined : await source.text(),
-        })
-      },
-      { preconnect: fetch.preconnect },
-    ),
-  })
+  const client = sdk(app())
   expect((await client.v2.capabilities.get({ throwOnError: true })).data.state.installed).toEqual({})
   const result = await client.v2.capabilities.change(
     { id: "github", bharatCodeCapabilityChange: { action: "enable" } },
@@ -122,6 +130,102 @@ test("generated SDK reads and changes marketplace state through the protected ha
   const enabled = (await client.v2.capabilities.get({ throwOnError: true })).data
   expect(enabled.state.installed.github.enabled).toBe(true)
   expect(enabled.configuration?.entries.github).toEqual({ enabled: true, custom: false })
+})
+
+test("custom MCP servers need authorization and save to the global config without echoing secrets", async () => {
+  const request = app()
+  expect((await request("/capabilities/mcp")).status).toBe(401)
+  expect((await request("/capabilities/mcp/notes", { method: "PUT" })).status).toBe(401)
+  expect((await request("/capabilities/mcp/notes", { method: "DELETE" })).status).toBe(401)
+
+  const saved = await request(
+    "/capabilities/mcp/notes",
+    put({
+      mode: "create",
+      type: "local",
+      command: ["node", "server.js", "--token", "argument-secret"],
+      environment: [{ key: "TOKEN", value: "env-secret" }],
+    }),
+  )
+  expect(saved.status).toBe(200)
+  const body = await saved.json()
+  expect(body).toEqual({
+    servers: [{ name: "notes", type: "local", enabled: true, target: "node", environment: ["TOKEN"], headers: [] }],
+    reloadRequired: true,
+  })
+  expect(JSON.stringify(body)).not.toMatch(/secret|server\.js/)
+  expect(parse(await Bun.file(config).text()).mcp.notes).toEqual({
+    type: "local",
+    command: ["node", "server.js", "--token", "argument-secret"],
+    environment: { TOKEN: "env-secret" },
+  })
+  expect((await (await request("/capabilities/mcp", { headers: auth })).json()).servers).toEqual(body.servers)
+
+  const removed = await request("/capabilities/mcp/notes", { method: "DELETE", headers: auth })
+  expect(removed.status).toBe(200)
+  expect((await removed.json()).servers).toEqual([])
+  expect(parse(await Bun.file(config).text()).mcp).toEqual({})
+})
+
+test("invalid custom MCP servers are rejected with a message, and a broken config is never rewritten", async () => {
+  const request = app()
+  const local = { mode: "create", type: "local", command: ["node"] }
+  expect((await request("/capabilities/mcp/notes", put({ ...local, cwd: "/elsewhere" }))).status).toBe(400)
+  expect((await request("/capabilities/mcp/notes", put({ ...local, mode: "replace" }))).status).toBe(400)
+
+  const http = await request(
+    "/capabilities/mcp/web",
+    put({ mode: "create", type: "remote", url: "http://mcp.example" }),
+  )
+  expect(http.status).toBe(400)
+  expect(await http.text()).toContain("Use https://")
+  const reserved = await request("/capabilities/mcp/github", put(local))
+  expect(reserved.status).toBe(400)
+  expect(await reserved.text()).toContain("Marketplace connector")
+
+  await writeFile(config, "{invalid: private-token}")
+  const listed = await request("/capabilities/mcp", { headers: auth })
+  expect(listed.status).toBe(503)
+  expect(await listed.text()).not.toMatch(/private-token|opencode.jsonc/)
+  expect((await request("/capabilities/mcp/notes", put(local))).status).toBe(400)
+  expect(await Bun.file(config).text()).toBe("{invalid: private-token}")
+})
+
+test("generated SDK saves, edits and removes custom MCP servers", async () => {
+  const client = sdk(app())
+  await client.v2.capabilities.mcpSave(
+    {
+      name: "docs",
+      bharatCodeMcpServerInput: {
+        mode: "create",
+        type: "remote",
+        url: "https://mcp.example.com/mcp",
+        headers: [{ key: "Authorization", value: "Bearer header-secret" }],
+      },
+    },
+    { throwOnError: true },
+  )
+  // A header sent without a value keeps the saved one, so the form never needs the secret back.
+  const edited = await client.v2.capabilities.mcpSave(
+    {
+      name: "docs",
+      bharatCodeMcpServerInput: { mode: "update", type: "remote", headers: [{ key: "Authorization" }] },
+    },
+    { throwOnError: true },
+  )
+  expect(edited.data.servers).toEqual([
+    {
+      name: "docs",
+      type: "remote",
+      enabled: true,
+      target: "https://mcp.example.com",
+      environment: [],
+      headers: ["Authorization"],
+    },
+  ])
+  expect(parse(await Bun.file(config).text()).mcp.docs.headers).toEqual({ Authorization: "Bearer header-secret" })
+  await client.v2.capabilities.mcpRemove({ name: "docs" }, { throwOnError: true })
+  expect((await client.v2.capabilities.mcpList({ throwOnError: true })).data.servers).toEqual([])
 })
 
 test("invalid actions and unknown IDs are rejected; storage errors expose no payload", async () => {

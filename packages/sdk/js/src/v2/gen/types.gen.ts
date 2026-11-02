@@ -2093,6 +2093,33 @@ export type BharatCodeCapabilityChange = {
   action: "install" | "enable" | "disable" | "uninstall"
 }
 
+export type BharatCodeMcpServer = {
+  name: string
+  type: "local" | "remote"
+  enabled: boolean
+  target: string
+  environment: Array<string>
+  headers: Array<string>
+}
+
+export type BharatCodeMcpServerList = {
+  servers: Array<BharatCodeMcpServer>
+}
+
+export type BharatCodeMcpServerPair = {
+  key: string
+  value?: string
+}
+
+export type BharatCodeMcpServerInput = {
+  mode: "create" | "update"
+  type: "local" | "remote"
+  command?: Array<string>
+  url?: string
+  environment?: Array<BharatCodeMcpServerPair>
+  headers?: Array<BharatCodeMcpServerPair>
+}
+
 export type BharatCodeDictationStatus = {
   available: boolean
   maxBytes?: number
@@ -7593,6 +7620,103 @@ export type V2CapabilitiesChangeResponses = {
 }
 
 export type V2CapabilitiesChangeResponse = V2CapabilitiesChangeResponses[keyof V2CapabilitiesChangeResponses]
+
+export type V2CapabilitiesMcpListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/capabilities/mcp"
+}
+
+export type V2CapabilitiesMcpListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2CapabilitiesMcpListError = V2CapabilitiesMcpListErrors[keyof V2CapabilitiesMcpListErrors]
+
+export type V2CapabilitiesMcpListResponses = {
+  /**
+   * BharatCodeMcpServerList
+   */
+  200: BharatCodeMcpServerList
+}
+
+export type V2CapabilitiesMcpListResponse = V2CapabilitiesMcpListResponses[keyof V2CapabilitiesMcpListResponses]
+
+export type V2CapabilitiesMcpRemoveData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: "/capabilities/mcp/{name}"
+}
+
+export type V2CapabilitiesMcpRemoveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2CapabilitiesMcpRemoveError = V2CapabilitiesMcpRemoveErrors[keyof V2CapabilitiesMcpRemoveErrors]
+
+export type V2CapabilitiesMcpRemoveResponses = {
+  /**
+   * Success
+   */
+  200: {
+    servers: Array<BharatCodeMcpServer>
+    reloadRequired: true
+  }
+}
+
+export type V2CapabilitiesMcpRemoveResponse = V2CapabilitiesMcpRemoveResponses[keyof V2CapabilitiesMcpRemoveResponses]
+
+export type V2CapabilitiesMcpSaveData = {
+  body?: BharatCodeMcpServerInput
+  path: {
+    name: string
+  }
+  query?: never
+  url: "/capabilities/mcp/{name}"
+}
+
+export type V2CapabilitiesMcpSaveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2CapabilitiesMcpSaveError = V2CapabilitiesMcpSaveErrors[keyof V2CapabilitiesMcpSaveErrors]
+
+export type V2CapabilitiesMcpSaveResponses = {
+  /**
+   * Success
+   */
+  200: {
+    servers: Array<BharatCodeMcpServer>
+    reloadRequired: true
+  }
+}
+
+export type V2CapabilitiesMcpSaveResponse = V2CapabilitiesMcpSaveResponses[keyof V2CapabilitiesMcpSaveResponses]
 
 export type V2AccountDictationStatusData = {
   body?: never

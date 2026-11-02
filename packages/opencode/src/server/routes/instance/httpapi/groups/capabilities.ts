@@ -36,6 +36,36 @@ export const CapabilityChange = Schema.Struct({
   action: Schema.Literals(["install", "enable", "disable", "uninstall"]),
 }).annotate({ identifier: "BharatCodeCapabilityChange", parseOptions: { onExcessProperty: "error" } })
 
+export const McpServer = Schema.Struct({
+  name: Schema.String,
+  type: Schema.Literals(["local", "remote"]),
+  enabled: Schema.Boolean,
+  target: Schema.String,
+  environment: Schema.Array(Schema.String),
+  headers: Schema.Array(Schema.String),
+}).annotate({ identifier: "BharatCodeMcpServer" })
+
+export const McpServerPair = Schema.Struct({
+  key: Schema.String.check(Schema.isMaxLength(128)),
+  value: Schema.optional(Schema.String.check(Schema.isMaxLength(8192))),
+}).annotate({ identifier: "BharatCodeMcpServerPair", parseOptions: { onExcessProperty: "error" } })
+
+export const McpServerInput = Schema.Struct({
+  mode: Schema.Literals(["create", "update"]),
+  type: Schema.Literals(["local", "remote"]),
+  command: Schema.optional(Schema.Array(Schema.String.check(Schema.isMaxLength(8192)))),
+  url: Schema.optional(Schema.String.check(Schema.isMaxLength(2048))),
+  environment: Schema.optional(Schema.Array(McpServerPair)),
+  headers: Schema.optional(Schema.Array(McpServerPair)),
+}).annotate({ identifier: "BharatCodeMcpServerInput", parseOptions: { onExcessProperty: "error" } })
+
+export const McpServerList = Schema.Struct({ servers: Schema.Array(McpServer) }).annotate({
+  identifier: "BharatCodeMcpServerList",
+})
+
+const McpServerChange = Schema.Struct({ servers: Schema.Array(McpServer), reloadRequired: Schema.Literal(true) })
+const mcpServerParams = { name: Schema.String.check(Schema.isMaxLength(64)) }
+
 export const CapabilitiesApi = HttpApi.make("bharatcode-capabilities").add(
   HttpApiGroup.make("v2.capabilities")
     .add(HttpApiEndpoint.get("get", "/capabilities", { success: CapabilitySnapshot, error: ServiceUnavailableError }))
@@ -44,6 +74,24 @@ export const CapabilitiesApi = HttpApi.make("bharatcode-capabilities").add(
         params: { id: Schema.String.check(Schema.isMaxLength(64)) },
         payload: CapabilityChange,
         success: Schema.Struct({ state: CapabilityState, reloadRequired: Schema.Literal(true) }),
+        error: [InvalidRequestError, ServiceUnavailableError],
+      }),
+    )
+    .add(
+      HttpApiEndpoint.get("mcpList", "/capabilities/mcp", { success: McpServerList, error: ServiceUnavailableError }),
+    )
+    .add(
+      HttpApiEndpoint.put("mcpSave", "/capabilities/mcp/:name", {
+        params: mcpServerParams,
+        payload: McpServerInput,
+        success: McpServerChange,
+        error: [InvalidRequestError, ServiceUnavailableError],
+      }),
+    )
+    .add(
+      HttpApiEndpoint.delete("mcpRemove", "/capabilities/mcp/:name", {
+        params: mcpServerParams,
+        success: McpServerChange,
         error: [InvalidRequestError, ServiceUnavailableError],
       }),
     )

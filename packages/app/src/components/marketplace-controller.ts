@@ -85,5 +85,7 @@ export function createMarketplaceController<Scope>(options: {
     if (!state.snapshot || state.uncertain) return Promise.resolve()
     return run("reload", options.reload, () => setState("reloadRequired", false), "reload")
   }
-  return { state, refresh, change, reload }
+  // Custom MCP servers are saved outside the catalog state but still need the same explicit reload.
+  const changed = () => setState("reloadRequired", true)
+  return { state, refresh, change, reload, changed }
 }
